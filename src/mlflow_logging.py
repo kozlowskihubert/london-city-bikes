@@ -16,12 +16,13 @@ def log_model_architecture(model):
     mlflow.log_param("hidden_size", model.hidden_size)
     mlflow.log_param("num_layers", model.num_layers)
 
-def log_train_parameters(num_epochs, optimizer, criterion, batch_size):
+def log_train_parameters(num_epochs, optimizer, criterion, batch_size, cluster):
     mlflow.log_param("num_epochs", num_epochs)
     mlflow.log_param("learning_rate", optimizer.param_groups[0]['lr'])
     mlflow.log_param("batch_size", batch_size)
     mlflow.log_param("criterion", criterion.__class__.__name__)
     mlflow.log_param("optimizer", optimizer.__class__.__name__)
+    mlflow.log_param("cluster", cluster)
 
 def log_training_metrics(metrics, epoch):
     mlflow.log_metric("train_loss", metrics["train_loss"], step=epoch)
@@ -55,9 +56,9 @@ def log_overall_prediction_metrics(metrics):
     mlflow.log_metric("Ends_sMAPE", metrics["Ends_sMAPE"])
 
 def log_day_prediction_metrics(day, day_mae, day_rmse, day_r2):
-    mlflow.log_metric(f"Day{day}_MAE", day_mae)
-    mlflow.log_metric(f"Day{day}_RMSE", day_rmse)
-    mlflow.log_metric(f"Day{day}_R2", day_r2)
+    mlflow.log_metric(f"Day_MAE", day_mae, step=day)
+    mlflow.log_metric(f"Day_RMSE", day_rmse, step=day)
+    mlflow.log_metric(f"Day_R2", day_r2, step=day)
 
 def log_weekend_prediction_metrics(weekend_mae, weekend_rmse, weekend_r2):
     mlflow.log_metric("Weekend_MAE", weekend_mae)
