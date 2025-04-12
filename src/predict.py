@@ -20,18 +20,18 @@ def predict(model, dataloader, scaler, extract_metadata=True):
             predictions = model(batch_X, batch_future).cpu().numpy()
             
             predictions = predictions.reshape(-1, PRED_LENGTH, 2)
-            
+
             if extract_metadata:
                 # Extract DayOfWeek, Holiday, IsPeak from future features
                 for i in range(batch_future.shape[0]):
                     for t in range(batch_future.shape[1]):
                         # Day of week is at index 0 in future features (after targets)
-                        metadata['DayOfWeek'].append(int(batch_future[i, t, 0].cpu().numpy() * 7))  # Assuming normalized
+                        metadata['DayOfWeek'].append(int(round(batch_future[i, t, 0].cpu().numpy() * 6 + 1)))
                         # Holiday is at index 8 in future features 
                         metadata['Holiday'].append(int(batch_future[i, t, 8].cpu().numpy()))
                         # IsPeak is at index 4 in future features
                         metadata['IsPeak'].append(int(batch_future[i, t, 4].cpu().numpy()))
-
+            
             # Inverse transform predictions
             original_scale_predictions = []
             for i in range(predictions.shape[0]):

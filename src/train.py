@@ -2,22 +2,17 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from sklearn.metrics import r2_score
-from src.mlflow_logging import log_model_architecture, log_train_parameters, log_training_metrics
+from src.mlflow_logging import log_training_metrics
 
 MODEL_BASENAME = "pytorch_model"
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Using device: {DEVICE}")
-
 
 def train_model(train_dataloader, val_dataloader, model, criterion, optimizer, num_epochs=10):
-    
+
     train_losses = []
     val_losses = []
     train_maes = []
     val_maes = []
-
-    log_model_architecture(model)
-    log_train_parameters(num_epochs, optimizer, criterion, train_dataloader.batch_size)
 
     for epoch in range(num_epochs):
         model.train()
