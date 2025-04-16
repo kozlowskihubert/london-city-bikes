@@ -24,6 +24,14 @@ def log_train_parameters(num_epochs, optimizer, criterion, batch_size, cluster):
     mlflow.log_param("optimizer", optimizer.__class__.__name__)
     mlflow.log_param("cluster", cluster)
 
+def log_train_parameters_with_embedding(num_epochs, optimizer, criterion, batch_size, USE_CLUSTER_EMBEDDING):
+    mlflow.log_param("num_epochs", num_epochs)
+    mlflow.log_param("learning_rate", optimizer.param_groups[0]['lr'])
+    mlflow.log_param("batch_size", batch_size)
+    mlflow.log_param("criterion", criterion.__class__.__name__)
+    mlflow.log_param("optimizer", optimizer.__class__.__name__)
+    mlflow.log_param("use_cluster_embedding", USE_CLUSTER_EMBEDDING)
+
 def log_training_metrics(metrics, epoch):
     mlflow.log_metric("train_loss", metrics["train_loss"], step=epoch)
     mlflow.log_metric("train_mae", metrics["train_mae"], step=epoch)

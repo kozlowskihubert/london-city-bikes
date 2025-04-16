@@ -1,53 +1,53 @@
 import numpy as np
 import torch
+from src.scaler import ScalerManager
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 PRED_LENGTH = 48
 
-def predict(model, dataloader, scaler, extract_metadata=True):
+def predict(model, dataloader, extract_metadata=True, use_cluster_embedding=True):
     model.eval()
     
     all_preds = []
     all_true = []
     metadata = {'DayOfWeek': [], 'Holiday': [], 'IsPeak': []} if extract_metadata else None
+    scalers = ScalerManager().get_all_scalers()
 
     with torch.no_grad():
-        for batch_X, batch_future, batch_y in dataloader:
+        for batch in dataloader:
+            if use_cluster_embedding:
+                batch_X, batch_future, batch_y, cluster_id = batch
+                cluster_id = cluster_id.to(DEVICE)
+            else:
+                batch_X, batch_future, batch_y = batch
+                cluster_id = None
+
             batch_X = batch_X.to(DEVICE)
             batch_future = batch_future.to(DEVICE)
             batch_y = batch_y.to(DEVICE)
 
-            predictions = model(batch_X, batch_future).cpu().numpy()
-            
+            predictions = model(batch_X, batch_future, cluster_id).cpu().numpy()
             predictions = predictions.reshape(-1, PRED_LENGTH, 2)
 
             if extract_metadata:
-                # Extract DayOfWeek, Holiday, IsPeak from future features
                 for i in range(batch_future.shape[0]):
                     for t in range(batch_future.shape[1]):
-                        # Day of week is at index 0 in future features (after targets)
                         metadata['DayOfWeek'].append(int(round(batch_future[i, t, 0].cpu().numpy() * 6 + 1)))
-                        # Holiday is at index 8 in future features 
                         metadata['Holiday'].append(int(batch_future[i, t, 8].cpu().numpy()))
-                        # IsPeak is at index 4 in future features
                         metadata['IsPeak'].append(int(batch_future[i, t, 4].cpu().numpy()))
-            
-            # Inverse transform predictions
-            original_scale_predictions = []
-            for i in range(predictions.shape[0]):
-                pred = inverse_transform_predictions(predictions[i], scaler)
-                original_scale_predictions.append(pred)
-            original_scale_predictions = np.array(original_scale_predictions)
-            
-            # Inverse transform the true values (batch_y)
-            original_scale_true = []
-            for i in range(batch_y.shape[0]):
-                true = inverse_transform_predictions(batch_y[i].cpu().numpy(), scaler)
-                original_scale_true.append(true)
-            original_scale_true = np.array(original_scale_true)
 
-            all_preds.append(original_scale_predictions)
-            all_true.append(original_scale_true)
+            # Inverse transform predictions
+            original_scale_predictions = [
+                inverse_transform_predictions(predictions[i], scalers[cluster_id[i].item()])
+                for i in range(predictions.shape[0])
+            ]
+            original_scale_true = [
+                inverse_transform_predictions(batch_y[i].cpu().numpy(), scalers[cluster_id[i].item()])
+                for i in range(batch_y.shape[0])
+            ]
+
+            all_preds.append(np.array(original_scale_predictions))
+            all_true.append(np.array(original_scale_true))
     
     all_true = np.vstack(all_true)
     all_preds = np.vstack(all_preds)
