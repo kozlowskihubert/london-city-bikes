@@ -48,20 +48,14 @@ def evaluate_predictions(all_true, all_preds, metadata=None, timepoint_eval=True
     all_true_reshaped = all_true.reshape(-1, all_true.shape[-1])  # (samples*pred_length, 2)
     all_preds_reshaped = all_preds.reshape(-1, all_preds.shape[-1])  # (samples*pred_length, 2)
     
-    # Calculate overall metrics
-    mae = mean_absolute_error(all_true_reshaped, all_preds_reshaped)
-    mse = mean_squared_error(all_true_reshaped, all_preds_reshaped)
-    rmse = np.sqrt(mse)
-    r2 = r2_score(all_true_reshaped, all_preds_reshaped)
-    smape = calculate_smape(all_true_reshaped, all_preds_reshaped)
-    
-    # Log overall metrics
+    # Overall metrics
     metrics = {}
-    metrics["MAE"] = mae
-    metrics["MSE"] = mse
-    metrics["RMSE"] = rmse
-    metrics["R2"] = r2
-    metrics["sMAPE"] = smape
+    metrics["MAE"] = mean_absolute_error(all_true_reshaped, all_preds_reshaped)
+    metrics["MSE"] = mean_squared_error(all_true_reshaped, all_preds_reshaped)
+    metrics["RMSE"] = np.sqrt(metrics["MSE"])
+    metrics["R2"] = r2_score(all_true_reshaped, all_preds_reshaped)
+    metrics["sMAPE"] = calculate_smape(all_true_reshaped, all_preds_reshaped)
+    
     
     # Calculate metrics separately for Starts and Ends
     starts_true = all_true_reshaped[:, 0]
@@ -157,11 +151,11 @@ def evaluate_predictions(all_true, all_preds, metadata=None, timepoint_eval=True
             t_r2 = r2_score(t_true, t_pred)
 
             log_timepoint_prediction_metric(t_mae, t_rmse, t_r2, t)
-  
+
     return {
-        'MAE': mae,
-        'MSE': mse,
-        'RMSE': rmse,
-        'R2': r2,
-        'sMAPE': smape
+        'MAE': metrics["MAE"],
+        'MSE': metrics["MSE"],
+        'RMSE': metrics["RMSE"],
+        'R2': metrics["R2"],
+        'sMAPE': metrics["sMAPE"]
     }

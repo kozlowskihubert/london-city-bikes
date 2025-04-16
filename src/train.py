@@ -7,8 +7,7 @@ from src.mlflow_logging import log_training_metrics
 MODEL_BASENAME = "pytorch_model"
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def train_model(train_dataloader, val_dataloader, model, criterion, optimizer, num_epochs=10):
-
+def train_model(train_dataloader, val_dataloader, model, criterion, optimizer, num_epochs=10, use_cluster_embedding=True):
     train_losses = []
     val_losses = []
     train_maes = []
@@ -18,33 +17,36 @@ def train_model(train_dataloader, val_dataloader, model, criterion, optimizer, n
         model.train()
         epoch_loss = 0
         epoch_mae = 0
-        for batch_X, batch_future, batch_y in train_dataloader:
+
+        for batch in train_dataloader:
+            if use_cluster_embedding:
+                batch_X, batch_future, batch_y, cluster_id = batch
+                cluster_id = cluster_id.to(DEVICE)
+            else:
+                batch_X, batch_future, batch_y = batch
+                cluster_id = None
+
             batch_X = batch_X.to(DEVICE)
             batch_future = batch_future.to(DEVICE)
             batch_y = batch_y.to(DEVICE)
-            
-            # Forward pass with both historical and future features
-            outputs = model(batch_X, batch_future)
-            loss = criterion(outputs, batch_y.view(batch_y.size(0), -1))  # Flatten batch_y
-            
-            # Compute MAE
+
+            outputs = model(batch_X, batch_future, cluster_id)
+            loss = criterion(outputs, batch_y.view(batch_y.size(0), -1))
             mae = torch.nn.functional.l1_loss(outputs, batch_y.view(batch_y.size(0), -1), reduction='mean')
-            
-            # Backward pass and optimization
+
             optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # Gradient clipping
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
-            
+
             epoch_loss += loss.item()
             epoch_mae += mae.item()
-        
+
         epoch_loss /= len(train_dataloader)
         epoch_mae /= len(train_dataloader)
         train_losses.append(epoch_loss)
         train_maes.append(epoch_mae)
 
-        # Validation Phase
         model.eval()
         val_loss = 0
         val_mae = 0
@@ -52,18 +54,25 @@ def train_model(train_dataloader, val_dataloader, model, criterion, optimizer, n
         val_targets_all = []
 
         with torch.no_grad():
-            for batch_X, batch_future, batch_y in val_dataloader:
+            for batch in val_dataloader:
+                if use_cluster_embedding:
+                    batch_X, batch_future, batch_y, cluster_id = batch
+                    cluster_id = cluster_id.to(DEVICE)
+                else:
+                    batch_X, batch_future, batch_y = batch
+                    cluster_id = None
+
                 batch_X = batch_X.to(DEVICE)
                 batch_future = batch_future.to(DEVICE)
                 batch_y = batch_y.to(DEVICE)
-                
-                outputs = model(batch_X, batch_future)
+
+                outputs = model(batch_X, batch_future, cluster_id)
                 loss = criterion(outputs, batch_y.view(batch_y.size(0), -1))
                 mae = torch.nn.functional.l1_loss(outputs, batch_y.view(batch_y.size(0), -1), reduction='mean')
-                
+
                 val_loss += loss.item()
                 val_mae += mae.item()
-
+                
                 val_outputs_all.append(outputs.cpu().numpy())
                 val_targets_all.append(batch_y.view(batch_y.size(0), -1).cpu().numpy())
 
@@ -71,14 +80,13 @@ def train_model(train_dataloader, val_dataloader, model, criterion, optimizer, n
         val_mae /= len(val_dataloader)
         val_losses.append(val_loss)
         val_maes.append(val_mae)
-        
-        # Calculate R² score for validation set
+
         val_outputs_concat = np.concatenate(val_outputs_all, axis=0)
         val_targets_concat = np.concatenate(val_targets_all, axis=0)
         val_r2 = r2_score(val_targets_concat, val_outputs_concat)
-        
+
         print(f'Epoch [{epoch+1}/{num_epochs}] - Train Loss: {epoch_loss:.4f}, Train MAE: {epoch_mae:.4f}, Val Loss: {val_loss:.4f}, Val MAE: {val_mae:.4f}')
-        
+
         epoch_metrics = {
             "train_loss": epoch_loss,
             "train_mae": epoch_mae,
@@ -88,6 +96,7 @@ def train_model(train_dataloader, val_dataloader, model, criterion, optimizer, n
         }
 
         log_training_metrics(epoch_metrics, epoch)
+
 
     # Plot training & validation loss
     plt.figure(figsize=(10, 5))
