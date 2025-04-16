@@ -1,23 +1,23 @@
-# 🚲 London City Bike Demand Forecasting
+# London City Bike Demand Forecasting
 
 Predicting bike hire and return demand in the London City Bike system using time series modeling with PyTorch LSTM.
 
 ---
 
-## 📌 Project Overview
+## Project Overview
 
 This project builds a deep learning model to forecast the number of hired and returned bikes in London's bike hire system. Using LSTM (Long Short-Term Memory) networks from PyTorch, the model aims to predict demand in 30-minute intervals across geographical clusters of bike stations.
 
 ---
 
-## 📊 Data Source
+## Data Source
 
 The raw data is provided by [Transport for London (TfL) Cycling Data](https://cycling.data.tfl.gov.uk/). It contains timestamped records of bike hires and returns across London.
 Weather data comes from [Open-meteo](https://open-meteo.com/).
 
 ---
 
-## 🛠️ Key Features
+## Key Features
 
 - **Data Collection**:  
   - Web scraping with **Beautiful Soup** and **Selenium** to fetch TfL cycling data.
@@ -36,13 +36,13 @@ Weather data comes from [Open-meteo](https://open-meteo.com/).
 
 ---
 
-## 🧪 Example Use Case
+## Example Use Case
 
 Forecasting bike demand for each cluster can help optimize bike distribution logistics, reduce shortages or surpluses, and ultimately improve the efficiency of the system.
 
 ---
 
-## 🚀 Future Plans
+## Future Plans
 
 - **Model Deployment**:
   - Serve the model with **FastAPI** and containerize it using **Docker**.
