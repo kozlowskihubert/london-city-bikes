@@ -59,7 +59,7 @@ Forecasting bike demand for each cluster can help optimize bike distribution log
 
 ---
 
-## 🧱 Tech Stack
+## Tech Stack
 
 - **Languages**: Python
 - **ML/DL**: PyTorch, scikit-learn
