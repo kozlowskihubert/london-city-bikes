@@ -4,14 +4,18 @@ import torch
 from sklearn.metrics import r2_score
 from src.mlflow_logging import log_training_metrics
 
-MODEL_BASENAME = "pytorch_model"
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def train_model(train_dataloader, val_dataloader, model, criterion, optimizer, num_epochs=10, use_cluster_embedding=True):
+def train_model(train_dataloader, val_dataloader, model, criterion, optimizer, num_epochs=10, use_cluster_embedding=True, patience=5):
     train_losses = []
     val_losses = []
     train_maes = []
     val_maes = []
+
+    best_val_loss = float('inf')
+    best_model_weights = None
+    best_epoch = 0
+    epochs_no_improve = 0
 
     for epoch in range(num_epochs):
         model.train()
@@ -97,7 +101,37 @@ def train_model(train_dataloader, val_dataloader, model, criterion, optimizer, n
 
         log_training_metrics(epoch_metrics, epoch)
 
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            best_model_weights = model.state_dict().copy()
+            best_epoch = epoch
+            epochs_no_improve = 0
+        else:
+            epochs_no_improve += 1
+            
+        if patience and epochs_no_improve >= patience:
+            print(f'Early stopping triggered after {epoch+1} epochs')
+            break
+    
+    if best_model_weights is not None:
+        model.load_state_dict(best_model_weights)
+        print(f'Best model from epoch {best_epoch+1} with val loss: {best_val_loss:.4f}')
+    
+    checkpoint = {
+        'epoch': epoch,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'train_losses': train_losses,
+        'val_losses': val_losses,
+        'best_val_loss': best_val_loss,
+    }
 
+    plot_losses(train_losses, val_losses, train_maes, val_maes)
+
+    return model, checkpoint
+
+
+def plot_losses(train_losses, val_losses, train_maes, val_maes):
     # Plot training & validation loss
     plt.figure(figsize=(10, 5))
     plt.plot(train_losses, label="Train Loss")
@@ -118,4 +152,20 @@ def train_model(train_dataloader, val_dataloader, model, criterion, optimizer, n
     plt.legend()
     plt.show()
 
-    return model
+
+def load_checkpoint_and_resume_training(checkpoint_path, model, criterion, optimizer, train_dataloader, val_dataloader, additional_epochs):
+    checkpoint = torch.load(checkpoint_path)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        
+    model, checkpoint = train_model(
+        train_dataloader=train_dataloader,
+        val_dataloader=val_dataloader,
+        model=model,
+        criterion=criterion,
+        optimizer=optimizer,
+        num_epochs=additional_epochs,
+        use_cluster_embedding=True,
+    )
+    
+    return model, checkpoint
