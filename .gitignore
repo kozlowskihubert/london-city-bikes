@@ -1,1 +1,6 @@
 tfl_cycling_data/
+mlruns/
+src/__pycache__/
+data/scalers/
+data/results/
+archiwum/

@@ -1,3 +1,4 @@
+from typing import Optional, Iterable
 import polars as pl
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -6,13 +7,15 @@ from src.scaler import ScalerManager
 SEQ_LENGTH = 7 * 48  # 7 days * 48 half-hour intervals per day
 PRED_LENGTH = 48  # Predict 48 steps (24 hours) ahead
 TRAIN_RATIO = 0.8
-BATCH_SIZE = 128 * 1
+REDUCE_DATASET_RATIO = 1 #0.02
+BATCH_SIZE = 128 * 2
+
 
 AGGREGATED_RIDES_DATA_PATH = "./processed/final_aggregated_rides_example_merged.csv"
 #AGGREGATED_RIDES_DATA_PATH = "./processed/final_aggregated_rides_merged.csv"
 
 class TimeSeriesDataset(Dataset):
-    def __init__(self, data, scalers, cluster_ids, use_cluster_embedding=False, is_train=True, train_ratio=0.8):
+    def __init__(self, data, scalers, cluster_ids, use_cluster_embedding=False, is_train=True, train_ratio=TRAIN_RATIO, reduce_dataset_ratio=REDUCE_DATASET_RATIO):
         self.data = data
         self.scalers = scalers
         self.cluster_ids = cluster_ids
@@ -21,6 +24,7 @@ class TimeSeriesDataset(Dataset):
         self.pred_length = PRED_LENGTH
         self.is_train = is_train
         self.train_ratio = train_ratio
+        self.reduce_dataset_ratio = reduce_dataset_ratio
         self.samples = self._prepare_samples()
 
     def _prepare_samples(self):
@@ -38,10 +42,10 @@ class TimeSeriesDataset(Dataset):
 
             if self.is_train:
                 start_idx = 0
-                end_idx = train_size
+                end_idx = int(train_size * self.reduce_dataset_ratio)
             else:
                 start_idx = train_size
-                end_idx = total_sequences
+                end_idx = int(start_idx + (total_sequences-start_idx) * self.reduce_dataset_ratio)
 
             for idx in range(start_idx, end_idx):
                 all_samples.append((cluster, cluster_data, idx))
@@ -73,11 +77,30 @@ class TimeSeriesDataset(Dataset):
                 torch.tensor(y, dtype=torch.float32)
             )
 
-def get_dataloaders(use_cluster_embedding_input=False):
+def get_dataloaders(use_cluster_embedding_input=True,
+                    exclude_clusters: Optional[Iterable[int]]=None,
+                    years: Optional[Iterable[int]]=None,
+                    batch_size=BATCH_SIZE
+    ):
     df_all = pl.scan_csv(AGGREGATED_RIDES_DATA_PATH).collect()
+
+    if years is not None:
+        df_all = df_all.with_columns(
+            pl.col("Interval").str.to_datetime().alias("Interval")
+        )
+        df_all = df_all.filter(
+            (pl.col("Interval").dt.year() >= min(years)) & (pl.col("Interval").dt.year() <= max(years))
+        )
+
+    if exclude_clusters is not None:
+        exclude_set = set(exclude_clusters)
+        df_all = df_all.filter(
+            ~pl.col("Cluster").is_in(exclude_set)
+        )
+
     clusters = sorted(df_all.select("Cluster").unique()["Cluster"].to_list())
     scalers = ScalerManager().get_all_scalers()
-    cluster_id_map = {cluster: cluster for cluster in clusters}  # Direct use of cluster IDs
+    cluster_id_map = {cluster: cluster for cluster in clusters}
 
     if use_cluster_embedding_input == False:
         train_dataloaders = {}
@@ -89,8 +112,8 @@ def get_dataloaders(use_cluster_embedding_input=False):
             train_dataset = TimeSeriesDataset(cluster_data, scalers, cluster_id_map, use_cluster_embedding_input, is_train=True)
             val_dataset = TimeSeriesDataset(cluster_data, scalers, cluster_id_map, use_cluster_embedding_input, is_train=False)
 
-            train_dataloaders[cluster] = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=1)
-            val_dataloaders[cluster] = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=1)
+            train_dataloaders[cluster] = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=1)
+            val_dataloaders[cluster] = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=1)
 
         return train_dataloaders, val_dataloaders, scalers, cluster_id_map
 
@@ -100,7 +123,7 @@ def get_dataloaders(use_cluster_embedding_input=False):
         train_dataset = TimeSeriesDataset(data_by_cluster, scalers, cluster_id_map, use_cluster_embedding_input, is_train=True)
         val_dataset = TimeSeriesDataset(data_by_cluster, scalers, cluster_id_map, use_cluster_embedding_input, is_train=False)
 
-        train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=1)
-        val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=1)
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=1)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=1)
 
-        return train_loader, val_loader, scalers, cluster_id_map
+        return train_loader, val_loader, cluster_id_map
