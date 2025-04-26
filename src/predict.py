@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+from typing import Dict, Optional, Tuple
 from src.scaler import ScalerManager
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -7,77 +8,121 @@ PRED_LENGTH = 48
 
 def predict(model, dataloader, extract_metadata=True, use_cluster_embedding=True):
     model.eval()
-    
-    all_preds = []
-    all_true = []
-    metadata = {'DayOfWeek': [], 'Holiday': [], 'IsPeak': []} if extract_metadata else None
     scalers = ScalerManager().get_all_scalers()
+
+    predictions_list, true_values_list = [], []
+    metadata, current_meta_idx = initialize_metadata(dataloader) if extract_metadata else (None, 0)
 
     with torch.no_grad():
         for batch in dataloader:
-            if use_cluster_embedding:
-                batch_X, batch_future, batch_y, cluster_id = batch
-                cluster_id = cluster_id.to(DEVICE)
-            else:
-                batch_X, batch_future, batch_y = batch
-                cluster_id = None
-
-            batch_X = batch_X.to(DEVICE)
-            batch_future = batch_future.to(DEVICE)
-            batch_y = batch_y.to(DEVICE)
-
-            predictions = model(batch_X, batch_future, cluster_id).cpu().numpy()
-            predictions = predictions.reshape(-1, PRED_LENGTH, 2)
-
+            batch_data = prepare_batch(batch, use_cluster_embedding)
+            batch_preds, batch_true = process_batch(model, batch_data, scalers)
+            
+            predictions_list.append(batch_preds)
+            true_values_list.append(batch_true)
+            
             if extract_metadata:
-                for i in range(batch_future.shape[0]):
-                    for t in range(batch_future.shape[1]):
-                        metadata['DayOfWeek'].append(int(round(batch_future[i, t, 0].cpu().numpy() * 6 + 1)))
-                        metadata['Holiday'].append(int(batch_future[i, t, 8].cpu().numpy()))
-                        metadata['IsPeak'].append(int(batch_future[i, t, 4].cpu().numpy()))
-
-            # Inverse transform predictions
-            original_scale_predictions = [
-                inverse_transform_predictions(predictions[i], scalers[cluster_id[i].item()])
-                for i in range(predictions.shape[0])
-            ]
-            original_scale_true = [
-                inverse_transform_predictions(batch_y[i].cpu().numpy(), scalers[cluster_id[i].item()])
-                for i in range(batch_y.shape[0])
-            ]
-
-            all_preds.append(np.array(original_scale_predictions))
-            all_true.append(np.array(original_scale_true))
+                current_meta_idx = update_metadata(
+                    metadata, 
+                    batch_data['future'],
+                    current_meta_idx
+                )
     
-    all_true = np.vstack(all_true)
-    all_preds = np.vstack(all_preds)
-
-    if extract_metadata:
-        for key in metadata:
-            metadata[key] = np.array(metadata[key])
-
+    all_preds = np.vstack(predictions_list)
+    all_true = np.vstack(true_values_list)
+    
     return all_preds, all_true, metadata
 
+def initialize_metadata(dataloader: torch.utils.data.DataLoader) -> Dict[str, np.ndarray]:
+    total_points = len(dataloader.dataset) * PRED_LENGTH
+    metadata = {
+        'DayOfWeek': np.empty(total_points, dtype=int),
+        'Holiday': np.empty(total_points, dtype=int),
+        'IsPeak': np.empty(total_points, dtype=int),
+    }
+    return metadata, 0
 
-def inverse_transform_predictions(predictions, scaler):
-    """
-    Inverse transform predictions using the scaler for the given cluster.
-    predictions: numpy array of shape (num_samples, 2) containing predictions for Starts and Ends.
-    cluster: the cluster ID to retrieve the corresponding scaler.
-    """
-    # Reshape predictions to match the scaler's expected input shape
-    predictions = predictions.reshape(-1, 2)  # Ensure predictions are in shape (num_samples, 2)
+def prepare_batch(batch: Tuple, use_cluster_embedding: bool) -> Dict[str, torch.Tensor]:
+    """Move batch data to device and organize into dictionary"""
+    if use_cluster_embedding:
+        X, future, y, cluster_id = batch
+        return {
+            'X': X.to(DEVICE),
+            'future': future.to(DEVICE),
+            'y': y.to(DEVICE),
+            'cluster_id': cluster_id.to(DEVICE)
+        }
+    else:
+        X, future, y = batch
+        return {
+            'X': X.to(DEVICE),
+            'future': future.to(DEVICE),
+            'y': y.to(DEVICE),
+            'cluster_id': None
+        }
+
+def process_batch(
+    model: torch.nn.Module,
+    batch_data: Dict[str, torch.Tensor],
+    scalers: Dict
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Generate predictions and inverse transform for a batch"""
+    predictions = model(
+        batch_data['X'],
+        batch_data['future'],
+        batch_data['cluster_id']
+    )
     
-    # Create a dummy array for the other features (excluding Starts and Ends)
+    predictions = predictions.cpu().numpy().reshape(-1, PRED_LENGTH, 2)
+    true_values = batch_data['y'].cpu().numpy()
+    
+    if batch_data['cluster_id'] is not None:
+        predictions = inverse_transform_by_cluster(predictions, batch_data['cluster_id'], scalers)
+        true_values = inverse_transform_by_cluster(true_values, batch_data['cluster_id'], scalers)
+    
+    return predictions, true_values
+    
+def inverse_transform_by_cluster(
+    values: np.ndarray,
+    cluster_id: torch.Tensor,
+    scalers: Dict
+) -> np.ndarray:
+    """Apply inverse transform grouped by cluster"""
+    cluster_ids = cluster_id.cpu().numpy().ravel()
+    unique_clusters = np.unique(cluster_ids)
+    transformed = np.empty_like(values)
+    
+    for cluster in unique_clusters:
+        mask = (cluster_ids == cluster)
+        if np.any(mask):
+            transformed[mask] = inverse_transform_batch(
+                values[mask].reshape(-1, 2),
+                scalers[cluster]
+            ).reshape(-1, PRED_LENGTH, 2)
+    
+    return transformed
+
+def inverse_transform_batch(predictions: np.ndarray, scaler) -> np.ndarray:
+    """Vectorized inverse transform for a batch of predictions"""
     num_samples = predictions.shape[0]
-    num_features = scaler.n_features_in_  # Total number of features used during fitting
-    dummy_features = np.zeros((num_samples, num_features - 2))  # Exclude Starts and Ends
-    
+    dummy_features = np.zeros((num_samples, scaler.n_features_in_ - 2))
     combined = np.hstack([predictions, dummy_features])
+    return scaler.inverse_transform(combined)[:, :2]
+
+def update_metadata(
+    metadata: Dict[str, np.ndarray],
+    future: torch.Tensor,
+    current_idx: int
+) -> int:
+    """Update metadata arrays with batch data"""
+    future_cpu = future.cpu().numpy()
+    batch_size = future_cpu.shape[0] * future_cpu.shape[1]
     
-    original_scale_predictions = scaler.inverse_transform(combined)
+    metadata['DayOfWeek'][current_idx:current_idx+batch_size] = \
+        (future_cpu[:, :, 0] * 6 + 1).round().astype(int).ravel()
+    metadata['Holiday'][current_idx:current_idx+batch_size] = \
+        future_cpu[:, :, 8].astype(int).ravel()
+    metadata['IsPeak'][current_idx:current_idx+batch_size] = \
+        future_cpu[:, :, 4].astype(int).ravel()
     
-    # Extract only the Starts and Ends columns
-    original_scale_predictions = original_scale_predictions[:, :2]
-    
-    return original_scale_predictions
+    return current_idx + batch_size
