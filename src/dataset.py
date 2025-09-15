@@ -12,24 +12,16 @@ from src.const import (
     DATSET_COLUMNS,
 )
 from src.paths import AGGREGATED_RIDES_DATA_PATH
-#AGGREGATED_RIDES_DATA_PATH = "./processed/final_aggregated_rides_merged.csv"
 
-#TODO make this code able to process train, val and test sets independly
-#TODO remove train_ratio
-#TODO make this function get and return only one dataset at time, not multiple dataloaders
 class TimeSeriesDataset(Dataset):
     def __init__(self, 
                  data, 
                  scalers, 
-                 is_train=True, 
-                 train_ratio=TRAIN_RATIO, 
                  reduce_dataset_ratio=REDUCE_DATASET_RATIO):
         self.data = data
         self.scalers = scalers
         self.seq_length = SEQ_LENGTH
         self.pred_length = PRED_LENGTH
-        self.is_train = is_train
-        self.train_ratio = train_ratio
         self.reduce_dataset_ratio = reduce_dataset_ratio 
         self.samples = self._prepare_samples()
     def _prepare_samples(self):
@@ -119,10 +111,10 @@ def get_dataloaders(exclude_clusters: Optional[Iterable[int]]=None,
     clusters = set(sorted(df_all.select("Cluster").unique()["Cluster"].to_list()))
     
     data_by_cluster = {cluster: df_all.filter(pl.col("Cluster") == cluster) for cluster in clusters}
-    train_data, val_data = split_train_val(data_by_cluster)
+    train_data, val_data = split_train_val(data_by_cluster, TRAIN_RATIO)
 
-    train_dataset = TimeSeriesDataset(train_data, scalers, is_train=True)
-    val_dataset = TimeSeriesDataset(val_data, scalers, is_train=False)
+    train_dataset = TimeSeriesDataset(train_data, scalers)
+    val_dataset = TimeSeriesDataset(val_data, scalers)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=1)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=1)
