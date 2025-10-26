@@ -3,12 +3,10 @@ import torch
 # DATASET CONSTANTS
 SEQ_LENGTH = 7 * 48  # 7 days * 48 half-hour intervals per day
 PRED_LENGTH = 48  # Predict 48 steps (24 hours) ahead
-REDUCE_DATASET_RATIO = 1 #0.02
-
+REDUCE_DATASET_RATIO = 0.2 #0.02
 INTERVAL_MINUTES = 30
 MIN_YEAR = 2016
 MAX_YEAR = 2023
-
 DATSET_COLUMNS = ["Starts", 
                   "Ends", 
                   "DayOfWeek", 
@@ -22,10 +20,14 @@ DATSET_COLUMNS = ["Starts",
                   "wind_speed_10m (km/h)", 
                   "Holiday"]
 
+# FEATURES CONSTANTS
+WEEKDAY_MORNING_RUSH = (7, 10)
+WEEKDAY_EVENING_RUSH = (17, 19)
+WEEKEND_RUSH = (13, 19)
+
 # MODEL CONSTANTS
 TRAIN_RATIO = 0.8  # 80% training, 20% validation
 BATCH_SIZE = 128 * 2
-
 INPUT_SIZE = 12
 FUTURE_FEATURE_SIZE = 10
 HIDDEN_SIZE = 128
