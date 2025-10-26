@@ -31,7 +31,6 @@ class TimeSeriesDataset(Dataset):
             cluster_data = df.select(
                 DATSET_COLUMNS
             ).to_numpy()
-
             scaler = self.scalers[cluster]
             cluster_data = scaler.transform(cluster_data)
             total_sequences = len(cluster_data) - self.seq_length - self.pred_length + 1
